@@ -19,6 +19,24 @@ The script is read-only, makes no changes, uses polite pagination with sleeps to
 # pip install requests
 import os, time, sys, csv, json, requests, getpass, re
 
+# MONITORING AND ALERTING CONFIGURATION
+# Risk Score Thresholds (based on confidence scoring):
+# - CRITICAL (≥200): Multiple high-confidence threats, immediate escalation
+# - HIGH (≥100): Single high-confidence threat, urgent review required
+# - MEDIUM (≥30): Low-confidence patterns, continued monitoring
+# - LOW (<30): Minimal risk, routine monitoring sufficient
+#
+# Confidence Thresholds:
+# - ≥0.8: High confidence (educational filters applied)
+# - ≥0.7: Medium confidence (repository context considered)
+# - <0.7: Low confidence (filtered as potential false positive)
+#
+# Alert Escalation:
+# - Critical: Immediate security team notification
+# - High: Schedule review within 24 hours
+# - Medium: Weekly monitoring report
+# - Low: Monthly summary review
+
 def validate_org_name(org):
   """Validate GitHub organization name format"""
   if not org:
@@ -419,27 +437,41 @@ def generate_detailed_repository_report(findings):
 
   # Collect all scanned repositories
   for repo_info in findings.get('repos_scanned', []):
-    repo_name = repo_info['full_name']
+    # Use defensive key access to handle missing keys
+    repo_name = repo_info.get('full_name') or repo_info.get('name', 'UNKNOWN_REPO')
     repo_issues[repo_name] = {
       'metadata': repo_info,
       'issues': [],
       'risk_score': 0
     }
 
-  # Add suspicious repository findings
+  # Add suspicious repository findings with confidence scoring
   for repo in findings.get('repos', []):
-    repo_name = repo['full_name']
+    repo_name = repo.get('full_name', 'UNKNOWN_REPO')
+    confidence = repo.get('confidence', 0.5)  # Default confidence if not set
+    pattern_match = repo.get('pattern_match', 'unknown')
+
     if repo_name not in repo_issues:
       repo_issues[repo_name] = {'metadata': repo, 'issues': [], 'risk_score': 0}
 
-    repo_issues[repo_name]['issues'].append({
-      'type': 'SUSPICIOUS_REPOSITORY',
-      'severity': 'MEDIUM',
-      'title': 'Repository flagged as suspicious',
-      'description': repo.get('desc', 'No description available'),
-      'details': repo
-    })
-    repo_issues[repo_name]['risk_score'] += 50
+    # Only add as issue if confidence is above threshold
+    if confidence >= 0.7:
+      severity = 'HIGH' if confidence >= 0.8 else 'MEDIUM'
+      risk_points = int(confidence * 100)  # Scale risk based on confidence
+
+      repo_issues[repo_name]['issues'].append({
+        'type': 'SUSPICIOUS_REPOSITORY',
+        'severity': severity,
+        'title': f'Repository flagged as suspicious (confidence: {confidence:.2f})',
+        'description': f"Pattern '{pattern_match}' detected. {repo.get('desc', 'No description available')}",
+        'details': repo,
+        'confidence': confidence,
+        'pattern_match': pattern_match
+      })
+      repo_issues[repo_name]['risk_score'] += risk_points
+    else:
+      # Log filtered low-confidence findings for transparency
+      print(f"   ℹ️  Filtered low-confidence suspicious repository: {repo_name} (confidence: {confidence:.2f})")
 
   # Add malicious workflow findings
   for workflow in findings.get('workflows', []):
@@ -532,13 +564,27 @@ def generate_detailed_repository_report(findings):
     print("✅ No threats detected across all scanned repositories")
     return
 
-  # Summary statistics
+  # Summary statistics with confidence-based thresholds
   total_repos = len(sorted_repos)
   compromised_repos = len([r for r in sorted_repos if r[1]['risk_score'] > 0])
+  critical_repos = len([r for r in sorted_repos if r[1]['risk_score'] >= 200])
   high_risk_repos = len([r for r in sorted_repos if r[1]['risk_score'] >= 100])
+  medium_risk_repos = len([r for r in sorted_repos if 30 <= r[1]['risk_score'] < 100])
 
   print(f"📊 SUMMARY: {compromised_repos}/{total_repos} repositories have security issues")
-  print(f"🚨 HIGH RISK: {high_risk_repos} repositories require immediate attention")
+  print(f"🚨 CRITICAL: {critical_repos} repositories require immediate action")
+  print(f"⚠️  HIGH RISK: {high_risk_repos} repositories need urgent review")
+  print(f"🟡 MEDIUM RISK: {medium_risk_repos} repositories should be monitored")
+
+  # Monitoring recommendations based on findings
+  if critical_repos > 0:
+    print(f"\n🔔 ALERT THRESHOLD: Critical threats detected - escalate to security team")
+  elif high_risk_repos > 0:
+    print(f"\n🔔 ALERT THRESHOLD: High-risk threats detected - schedule immediate review")
+  elif medium_risk_repos > 0:
+    print(f"\n🔔 MONITORING: Medium-risk patterns detected - continue monitoring")
+  else:
+    print(f"\n✅ STATUS: No high-confidence threats detected - routine monitoring sufficient")
   print()
 
   # Detailed per-repository breakdown
@@ -546,7 +592,11 @@ def generate_detailed_repository_report(findings):
     if repo_data['risk_score'] == 0:
       continue  # Skip clean repositories in detailed view
 
-    risk_level = "🚨 CRITICAL" if repo_data['risk_score'] >= 150 else "⚠️  HIGH" if repo_data['risk_score'] >= 80 else "🟡 MEDIUM"
+    # Updated risk thresholds based on confidence scoring
+    # CRITICAL: Multiple high-confidence threats or confirmed malicious activity
+    # HIGH: Single high-confidence threat or multiple medium threats
+    # MEDIUM: Low-confidence threats or suspicious patterns
+    risk_level = "🚨 CRITICAL" if repo_data['risk_score'] >= 200 else "⚠️  HIGH" if repo_data['risk_score'] >= 100 else "🟡 MEDIUM" if repo_data['risk_score'] >= 30 else "🟢 LOW"
 
     print(f"\n{'='*60}")
     print(f"📁 REPOSITORY: {repo_name}")
@@ -618,6 +668,96 @@ def get_repositories():
     print(f"⚠️  Unknown target type: {TARGET_TYPE}")
     return []
 
+def calculate_threat_confidence(repo):
+  """Calculate confidence score for threat classification (0.0-1.0)"""
+  confidence = 0.0
+  repo_name = repo["full_name"].lower()
+  repo_desc = (repo.get("description") or "").lower()
+
+  # Educational/research indicators (reduce confidence)
+  educational_keywords = [
+    "tutorial", "example", "demo", "educational", "research", "academic",
+    "course", "training", "learning", "study", "university", "school",
+    "framework", "osint", "cybersecurity", "security", "analysis"
+  ]
+
+  research_indicators = [
+    "poc", "proof-of-concept", "demonstration", "showcase", "sample",
+    "reference", "template", "boilerplate", "starter", "guide"
+  ]
+
+  # Check for educational/research patterns
+  education_score = 0
+  for keyword in educational_keywords + research_indicators:
+    if keyword in repo_name or keyword in repo_desc:
+      education_score += 0.2
+
+  # If high education score, very low confidence of being actual threat
+  if education_score >= 0.4:
+    confidence = max(0.1, 0.8 - education_score)
+  else:
+    # Check for actual threat indicators
+    threat_indicators = [
+      "migration", "attack", "exploit", "payload", "backdoor",
+      "malicious", "stealer", "trojan", "virus"
+    ]
+
+    for indicator in threat_indicators:
+      if indicator in repo_name or indicator in repo_desc:
+        confidence += 0.3
+
+    # Repository characteristics that suggest legitimacy
+    if repo.get("stargazers_count", 0) > 10:
+      confidence -= 0.1  # Popular repos less likely to be malicious
+
+    if repo.get("forks_count", 0) > 5:
+      confidence -= 0.1  # Forked repos less likely to be malicious
+
+    # Recent activity suggests legitimate project
+    if repo.get("updated_at"):
+      try:
+        from datetime import datetime, timedelta
+        updated = datetime.fromisoformat(repo["updated_at"].replace('Z', '+00:00'))
+        if datetime.now().replace(tzinfo=updated.tzinfo) - updated < timedelta(days=30):
+          confidence -= 0.1
+      except:
+        pass
+
+  # Clamp confidence to valid range
+  return max(0.0, min(1.0, confidence))
+
+def validate_repository_ownership(repo, target, target_type):
+  """Validate that repository belongs to the target being scanned"""
+  try:
+    if target_type == "organization":
+      repo_owner = repo.get("full_name", "").split("/")[0] if repo.get("full_name") else ""
+      return repo_owner.lower() == target.lower()
+    elif target_type == "user":
+      repo_owner = repo.get("owner", {}).get("login", "")
+      return repo_owner.lower() == target.lower()
+    elif target_type == "repository":
+      return repo.get("full_name", "").lower() == target.lower()
+  except (AttributeError, IndexError, KeyError):
+    return False
+  return False
+
+def validate_search_scope(findings, target, target_type):
+  """Validate that all findings are within the expected scope"""
+  scope_violations = []
+
+  for repo in findings.get('repos', []):
+    if not validate_repository_ownership(repo, target, target_type):
+      scope_violations.append(repo.get('full_name', 'UNKNOWN'))
+
+  if scope_violations:
+    print(f"⚠️  Warning: {len(scope_violations)} findings are outside target scope:")
+    for violation in scope_violations[:5]:  # Show first 5
+      print(f"   - {violation}")
+    if len(scope_violations) > 5:
+      print(f"   ... and {len(scope_violations) - 5} more")
+
+  return len(scope_violations) == 0
+
 def hunt():
   findings = {"target": TARGET, "target_type": TARGET_TYPE, "repos_scanned": [], "repos": [], "workflows": [], "webhook_hits": [], "branches": [], "packages": [], "audit": []}
 
@@ -633,21 +773,33 @@ def hunt():
     return findings
 
   # Store scanned repos for explicit reporting
-  findings["repos_scanned"] = [{"name": r["full_name"], "private": r.get("private", False), "size": r.get("size", 0)} for r in repos]
+  findings["repos_scanned"] = [{"full_name": r["full_name"], "name": r["name"], "private": r.get("private", False), "size": r.get("size", 0), "description": r.get("description")} for r in repos]
 
-  # 1 repos - search for suspicious repository patterns
+  # 1 repos - check for suspicious repository patterns within target scope only
   if TARGET_TYPE in ["organization", "user"]:
-    search_queries = [
-      "Shai Hulud in:name,description language:python",
-      f"{TARGET_TYPE}:{TARGET} migration in:name",
-      f"{TARGET_TYPE}:{TARGET} \"Shai Hulud\" in:name,description"
-    ]
+    print("🔍 Analyzing repository names for suspicious patterns...")
+    # Check only repositories we already fetched, not global searches
+    suspicious_patterns = ["shai-hulud", "shai hulud", "migration", "hulud"]
 
-    for q in search_queries:
-      print(f"🔍 Searching repositories: {q}")
-      items = gh_paged("https://api.github.com/search/repositories", params={"q": q})
-      if items:
-        findings["repos"] += [{"full_name": i["full_name"], "desc": i.get("description")} for i in items]
+    for repo in repos:
+      repo_name = repo["full_name"].lower()
+      repo_desc = (repo.get("description") or "").lower()
+
+      # Check for suspicious patterns in repository name or description
+      for pattern in suspicious_patterns:
+        if pattern in repo_name or pattern in repo_desc:
+          # Validate this is actually suspicious (not educational/research)
+          confidence_score = calculate_threat_confidence(repo)
+          if confidence_score >= 0.7:  # Only report high-confidence threats
+            findings["repos"].append({
+              "full_name": repo["full_name"],
+              "desc": repo.get("description"),
+              "confidence": confidence_score,
+              "pattern_match": pattern
+            })
+            print(f"   🚨 Suspicious repository detected: {repo['full_name']} (confidence: {confidence_score:.2f})")
+          else:
+            print(f"   ℹ️  Low-confidence match filtered: {repo['full_name']} (confidence: {confidence_score:.2f})")
 
   # 2 workflow file - search for malicious workflow files
   print("🔍 Searching for malicious workflow files...")
@@ -736,6 +888,12 @@ def hunt():
   print("="*60)
 
   # Generate detailed per-repository, per-issue report
+  # Validate search scope and warn about potential issues
+  scope_valid = validate_search_scope(findings, TARGET, TARGET_TYPE)
+  if not scope_valid:
+    print("\n⚠️  SCOPE WARNING: Some findings may be outside the intended target scope.")
+    print("   This could indicate false positives from global searches.")
+
   generate_detailed_repository_report(findings)
 
   print("\n📋 RAW JSON FINDINGS:")

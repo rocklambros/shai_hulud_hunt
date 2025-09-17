@@ -1,0 +1,117 @@
+name: Security Scan Example
+
+on:
+  schedule:
+    - cron: '0 6 * * 1'  # Weekly Monday 6 AM UTC
+  workflow_dispatch:  # Manual trigger
+    inputs:
+      target_type:
+        description: 'Scan target type'
+        required: true
+        default: 'organization'
+        type: choice
+        options:
+        - organization
+        - user
+        - repository
+      target_name:
+        description: 'Target name (org/user/repo)'
+        required: true
+        type: string
+
+jobs:
+  security-scan:
+    runs-on: ubuntu-latest
+    environment: security-scanning
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.9'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install requests
+
+      - name: Validate GitHub token
+        env:
+          GITHUB_TOKEN: ${{ secrets.SECURITY_SCAN_TOKEN }}
+        run: |
+          if ! curl -sf -H "Authorization: Bearer $GITHUB_TOKEN" https://api.github.com/user > /dev/null; then
+            echo "❌ Security scan token validation failed"
+            exit 1
+          fi
+          echo "✅ Security scan token validated"
+
+      - name: Run Shai Hulud security scan
+        env:
+          GITHUB_TOKEN: ${{ secrets.SECURITY_SCAN_TOKEN }}
+          GITHUB_ORG: ${{ github.event.inputs.target_name || github.repository_owner }}
+        run: |
+          echo "🔍 Starting security scan..."
+          python shai_hulud_github_hunt.py > scan_results.txt 2>&1
+          echo "✅ Security scan completed"
+
+      - name: Check for high-risk findings
+        run: |
+          if grep -q "🚨 HIGH RISK:" scan_results.txt; then
+            HIGH_RISK=$(grep "🚨 HIGH RISK:" scan_results.txt | awk '{print $4}')
+            echo "🚨 ALERT: Found $HIGH_RISK high-risk repositories"
+            echo "::warning title=Security Alert::High-risk threats detected in $HIGH_RISK repositories"
+          else
+            echo "✅ No high-risk threats detected"
+          fi
+
+      - name: Sanitize results for upload
+        run: |
+          # Remove any tokens or sensitive data from logs
+          sed -i 's/github_pat_[a-zA-Z0-9_]*/[REDACTED]/g' scan_results.txt
+          sed -i 's/ghp_[a-zA-Z0-9]*/[REDACTED]/g' scan_results.txt
+
+      - name: Upload scan results
+        uses: actions/upload-artifact@v3
+        with:
+          name: shai-hulud-scan-results-${{ github.run_number }}
+          path: scan_results.txt
+          retention-days: 90
+
+      - name: Create security issue on findings
+        if: contains(github.event_name, 'schedule') && contains(github.ref, 'main')
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          if grep -q "🚨 HIGH RISK:" scan_results.txt; then
+            HIGH_RISK=$(grep "🚨 HIGH RISK:" scan_results.txt | awk '{print $4}')
+
+            # Create GitHub issue for security team
+            gh issue create \
+              --title "🚨 Shai Hulud Security Alert: $HIGH_RISK High-Risk Repositories Detected" \
+              --body "$(cat <<EOF
+          ## Security Scan Alert
+
+          **Scan Date**: $(date)
+          **High-Risk Repositories**: $HIGH_RISK
+          **Scan Type**: Automated weekly scan
+
+          ### Action Required
+          - [ ] Review detailed scan results in GitHub Actions artifacts
+          - [ ] Investigate high-risk repositories immediately
+          - [ ] Apply remediation measures for detected threats
+          - [ ] Update incident response documentation
+
+          ### Scan Summary
+          \`\`\`
+          $(grep -A 20 "🎯 SHAI HULUD THREAT HUNT RESULTS" scan_results.txt | head -20)
+          \`\`\`
+
+          **Artifact**: [Download full scan results](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})
+          EOF
+          )" \
+              --label "security,high-priority" \
+              --assignee "${{ github.repository_owner }}"
+          fi
