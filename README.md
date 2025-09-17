@@ -12,8 +12,9 @@ The Shai Hulud threat hunting tool scans GitHub environments for indicators of c
 - ✅ **Comprehensive Package Detection**: 555 known compromised packages across 8+ ecosystems
 - ✅ **Detailed Threat Reporting**: Per-repository, per-issue analysis with risk scoring
 - ✅ **Multiple Threat Vectors**: Malicious workflows, package vulnerabilities, suspicious branches, webhook exfiltration
-- ✅ **Enterprise Ready**: Rate limiting, error recovery, audit trail integration
+- ✅ **Enterprise Security**: Secure token storage, input sanitization, DoS protection
 - ✅ **SIEM Integration**: Structured JSON output for security orchestration
+- ✅ **Security Hardened**: Protection against credential exposure, injection attacks, and resource exhaustion
 
 ## 🚨 Threat Detection Capabilities
 
@@ -39,54 +40,107 @@ Scans for compromised packages across multiple ecosystems:
 - **🟡 MEDIUM (1-79)**: Single medium-severity threat
 - **✅ CLEAN (0)**: No threats detected
 
-## 📋 Requirements
+---
 
-### System Requirements
+## 🚀 Quick Start
+
+### Requirements
 - Python 3.7+
-- `requests` library (`pip install requests`)
+- `requests` library
+- GitHub Personal Access Token
 - Internet connectivity for GitHub API access
 
-### GitHub Token Requirements
-The tool requires a GitHub Personal Access Token with appropriate scopes:
-
-**For Public Repositories:**
-- `public_repo` scope
-
-**For Private Repositories & Organizations:**
-- `repo` scope (full repository access)
-- `read:org` scope (organization member access)
-
-**For Enterprise Audit Logs (Optional):**
-- `read:audit_log` scope (Enterprise Cloud only)
-
-### Token Setup
-1. Navigate to GitHub Settings → Developer settings → Personal access tokens
-2. Generate a new token with required scopes
-3. Set as environment variable:
-   ```bash
-   export GITHUB_TOKEN="your_token_here"
-   ```
-
-## 🚀 Installation
-
-### Quick Start
+### Installation
 ```bash
-# Clone the repository
-git clone https://github.com/your-username/shai_hulud_hunt.git
+# 1. Download and setup
+git clone https://github.com/your-org/shai_hulud_hunt.git
 cd shai_hulud_hunt
-
-# Install dependencies
 pip install requests
 
-# Set up environment
-export GITHUB_TOKEN="your_github_token"
-export GITHUB_ORG="your_organization"  # Optional
+# 2. Configure GitHub token
+export GITHUB_TOKEN="github_pat_your_token_here"
+export GITHUB_ORG="your-organization"
 
-# Run the tool
+# 3. Run scan
 python3 shai_hulud_github_hunt.py
 ```
 
+### Alternative Installation Methods
+
+#### Virtual Environment (Recommended)
+```bash
+# Create virtual environment
+python3 -m venv shai_hulud_env
+source shai_hulud_env/bin/activate  # Linux/macOS
+# OR
+shai_hulud_env\Scripts\activate.bat  # Windows
+
+# Install and run
+git clone https://github.com/your-org/shai_hulud_hunt.git
+cd shai_hulud_hunt
+pip install requests
+python3 shai_hulud_github_hunt.py
+```
+
+#### Docker
+```bash
+# Build and run with Docker
+docker build -t shai-hulud-hunt .
+docker run -e GITHUB_TOKEN=$GITHUB_TOKEN -e GITHUB_ORG=$GITHUB_ORG shai-hulud-hunt
+```
+
+---
+
+## 🔑 GitHub Token Setup
+
+### Creating a Personal Access Token
+
+1. **Navigate to GitHub Settings**
+   - Go to https://github.com/settings/tokens
+   - Click "Generate new token" → "Fine-grained tokens" (recommended)
+
+2. **Configure Token Permissions**
+
+   **For Public Repository Scanning:**
+   - ✅ `Contents: Read`
+   - ✅ `Metadata: Read`
+
+   **For Private Repository & Organization Scanning:**
+   - ✅ `Contents: Read`
+   - ✅ `Metadata: Read`
+   - ✅ `Actions: Read` (for workflow detection)
+
+   **For Enterprise Audit Log Access (Optional):**
+   - ✅ `Administration: Read` (for audit logs)
+
+3. **Generate and Secure Token**
+   - Click "Generate token"
+   - **Copy token immediately** (cannot be viewed again)
+   - Store securely in password manager
+
 ### Environment Variables
+
+#### Linux/macOS
+```bash
+# Add to ~/.bashrc or ~/.zshrc for persistence
+export GITHUB_TOKEN="github_pat_your_token_here"
+export GITHUB_ORG="your-organization-name"
+
+# Apply changes
+source ~/.bashrc
+```
+
+#### Windows PowerShell
+```powershell
+# Set for current session
+$env:GITHUB_TOKEN="github_pat_your_token_here"
+$env:GITHUB_ORG="your-organization-name"
+
+# Set permanently (requires restart)
+[Environment]::SetEnvironmentVariable("GITHUB_TOKEN", "github_pat_your_token_here", "User")
+```
+
+### Environment Variables Reference
 | Variable | Description | Required |
 |----------|-------------|----------|
 | `GITHUB_TOKEN` | GitHub Personal Access Token | Yes |
@@ -96,7 +150,9 @@ python3 shai_hulud_github_hunt.py
 
 *At least one target must be specified via environment variable or interactive prompt
 
-## 📖 Usage
+---
+
+## 📖 Usage Examples
 
 ### Interactive Mode
 Run without environment variables for guided setup:
@@ -110,27 +166,31 @@ The tool will prompt for:
 3. **GitHub Token**: If not set in environment variables
 
 ### Environment Variable Mode
+
+#### Scan an Organization
 ```bash
-# Scan an organization
-export GITHUB_TOKEN="your_token"
+export GITHUB_TOKEN="github_pat_your_token_here"
 export GITHUB_ORG="microsoft"
 python3 shai_hulud_github_hunt.py
+```
 
-# Scan a user's repositories
-export GITHUB_TOKEN="your_token"
+#### Scan a User's Repositories
+```bash
+export GITHUB_TOKEN="github_pat_your_token_here"
 export GITHUB_USER="octocat"
 python3 shai_hulud_github_hunt.py
+```
 
-# Scan a single repository
-export GITHUB_TOKEN="your_token"
+#### Scan a Single Repository
+```bash
+export GITHUB_TOKEN="github_pat_your_token_here"
 export GITHUB_TARGET="microsoft/vscode"
 python3 shai_hulud_github_hunt.py
 ```
 
-## 📊 Output Analysis
+### Sample Output
 
-### Executive Summary
-The tool provides a high-level overview of findings:
+#### Executive Summary
 ```
 🎯 SHAI HULUD THREAT HUNT RESULTS
 ============================================================
@@ -143,8 +203,7 @@ The tool provides a high-level overview of findings:
 📊 Audit log events: 12
 ```
 
-### Detailed Repository Analysis
-Per-repository breakdown with risk scoring:
+#### Detailed Repository Analysis
 ```
 ============================================================
 📁 REPOSITORY: orgname/vulnerable-app
@@ -159,22 +218,74 @@ Per-repository breakdown with risk scoring:
       🌐 View File: https://github.com/orgname/vulnerable-app/blob/main/package.json
 ```
 
-### JSON Output
-Complete findings in SIEM-ready JSON format:
-```json
-{
-  "target": "your-org",
-  "target_type": "organization",
-  "repos_scanned": [...],
-  "packages": [...],
-  "workflows": [...],
-  "webhook_hits": [...],
-  "branches": [...],
-  "audit": [...]
-}
+#### JSON Output
+Complete findings in SIEM-ready JSON format at the end of output for integration with security tools.
+
+---
+
+## 🚨 Security Features
+
+### Security Hardening (v1.1)
+The tool includes enterprise-grade security protections:
+
+- ✅ **Secure Token Storage**: XOR obfuscation prevents credential exposure in memory dumps
+- ✅ **Input Sanitization**: Comprehensive validation protects against injection attacks
+- ✅ **Token Scope Validation**: Automatic checking for least privilege compliance
+- ✅ **DoS Protection**: Resource limits prevent attacks on large organizations
+- ✅ **Security Logging**: Comprehensive audit trail for compliance and incident response
+- ✅ **Defensive Programming**: API timeouts, rate limiting, error sanitization
+
+### Token Security
+- **Secure Storage**: Tokens stored with XOR obfuscation in memory
+- **Automatic Validation**: Pre-scan token scope and permission checking
+- **Least Privilege**: Warns about excessive permissions (admin:org, etc.)
+- **Never commit tokens to version control**
+- Use environment variables or secure credential management
+- Rotate tokens regularly
+
+### Resource Protection
+- **Repository Limits**: Maximum 1000 repositories per scan
+- **Branch Limits**: Maximum 100 branches per repository
+- **API Rate Limiting**: 60 calls per minute with automatic backoff
+- **Timeout Protection**: 15-second timeout on all API requests
+
+### Network Security
+- Tool makes HTTPS requests to api.github.com only
+- No data is transmitted to third parties
+- All scanning is read-only (no modifications made)
+- Input sanitization prevents malicious repository data processing
+
+### Data Privacy & Compliance
+- **Local Processing**: All analysis performed locally, no external data transmission
+- **Audit Trail**: Comprehensive security event logging for compliance
+- **Data Sanitization**: Sensitive information removed from error messages
+- **Secure Defaults**: Security-first configuration throughout
+
+---
+
+## 🔧 Configuration
+
+### Corporate Environment Setup
+
+#### Proxy Configuration
+```bash
+# Set proxy environment variables
+export HTTP_PROXY=http://proxy.company.com:8080
+export HTTPS_PROXY=http://proxy.company.com:8080
+
+# For authenticated proxies
+export HTTP_PROXY=http://username:password@proxy.company.com:8080
+export HTTPS_PROXY=http://username:password@proxy.company.com:8080
 ```
 
-## 🔧 Advanced Configuration
+#### SSL Certificate Issues
+```bash
+# Add CA certificate to Python requests
+export REQUESTS_CA_BUNDLE=/path/to/company-ca-bundle.crt
+
+# Or disable SSL verification (NOT recommended for production)
+export PYTHONHTTPSVERIFY=0
+```
 
 ### Customizing Package Detection
 The tool uses `compromised_packages.txt` containing 555 known compromised packages. To update:
@@ -185,45 +296,42 @@ The tool uses `compromised_packages.txt` containing 555 known compromised packag
 
 ### Rate Limiting
 The tool implements intelligent rate limiting:
-- 0.05 seconds between Repository Contents API calls
-- 0.2 seconds between branch enumeration requests
-- 0.5 seconds between Search API calls (fallback)
 - Automatic retry with exponential backoff
+- 60 API calls per minute maximum
+- 15-second timeout on all requests
+- Polite delays between different API endpoint calls
 
-## 🚨 Security Considerations
-
-### Token Security
-- **Never commit tokens to version control**
-- Use environment variables or secure credential management
-- Rotate tokens regularly
-- Apply principle of least privilege for token scopes
-
-### Network Security
-- Tool makes HTTPS requests to api.github.com only
-- No data is transmitted to third parties
-- All scanning is read-only (no modifications made)
-
-### Data Privacy
-- Scanned repository metadata is processed locally
-- No persistent storage of sensitive information
-- JSON output may contain repository paths and filenames
+---
 
 ## 🔄 Troubleshooting
 
 ### Common Issues
 
-#### 403 Forbidden Errors
-**Problem**: API returns 403 Forbidden during package scanning
-**Solution**: Tool automatically uses Repository Contents API instead of Search API
+#### Token Permission Errors
+**Problem**: 401 Unauthorized or insufficient permissions
+**Solution**: Verify token has required scopes:
+```bash
+# The tool now includes automatic token validation
+export GITHUB_TOKEN="github_pat_your_token_here"
+python3 shai_hulud_github_hunt.py
+
+# Output includes security validation:
+# 🔍 Validating GitHub token...
+# ✅ Token validation successful
+# ⚠️ Warning: Token has excessive scope 'admin:org' - not required for scanning
+```
 
 #### Rate Limiting
 **Problem**: HTTP 429 errors or rate limit warnings
 **Solution**: Tool implements automatic rate limiting and retry logic
 
-#### Token Permission Errors
-**Problem**: 401 Unauthorized or insufficient permissions
-**Solution**: Verify token has required scopes:
+#### 403 Forbidden Errors
+**Problem**: API returns 403 Forbidden during package scanning
+**Solution**: Tool automatically uses Repository Contents API instead of Search API
+
+#### Network Connectivity Issues
 ```bash
+# Test GitHub API connectivity
 curl -H "Authorization: Bearer $GITHUB_TOKEN" https://api.github.com/user
 ```
 
@@ -231,12 +339,30 @@ curl -H "Authorization: Bearer $GITHUB_TOKEN" https://api.github.com/user
 **Problem**: Package scanning reports 0 packages but repositories contain package files
 **Solution**: Check that `compromised_packages.txt` exists and contains package data
 
-### Debug Information
-Run with increased verbosity by examining the script output for:
-- API endpoint URLs being called
-- Response status codes
-- Error messages with context
-- Repository and file paths being scanned
+### Installation Issues
+
+#### "ModuleNotFoundError: No module named 'requests'"
+```bash
+pip install requests
+
+# If using system Python on Linux
+sudo apt-get install python3-pip  # Ubuntu/Debian
+pip3 install requests
+```
+
+#### "Permission denied" on Linux/macOS
+```bash
+chmod +x shai_hulud_github_hunt.py
+# Or run with python3 explicitly
+python3 shai_hulud_github_hunt.py
+```
+
+#### Corporate Network Issues
+1. **Proxy Configuration**: Set HTTP_PROXY/HTTPS_PROXY environment variables
+2. **Firewall Rules**: Ensure outbound HTTPS access to api.github.com
+3. **SSL Certificates**: Configure REQUESTS_CA_BUNDLE if needed
+
+---
 
 ## 📈 Performance
 
@@ -246,22 +372,110 @@ Run with increased verbosity by examining the script output for:
 - **Large organizations** (100+ repos): 15+ minutes
 
 ### Resource Usage
-- **Memory**: <50MB typical usage
+- **Memory**: <50MB typical usage (512MB limit enforced)
 - **Network**: ~1KB per API call, depends on repository count
 - **CPU**: Minimal, I/O bound workload
+
+### For Large Organizations (100+ repositories)
+```bash
+# Consider running in background
+nohup python3 shai_hulud_github_hunt.py > scan_results.log 2>&1 &
+
+# Monitor progress
+tail -f scan_results.log
+```
+
+---
+
+## 🔗 Integration
+
+### SIEM Integration
+The tool outputs structured JSON at the end of each scan for easy integration with security tools:
+
+#### Splunk Integration
+```bash
+# Extract JSON findings and send to Splunk
+python3 shai_hulud_github_hunt.py > /tmp/scan_output.txt 2>&1
+grep -A 999999 "RAW JSON FINDINGS:" /tmp/scan_output.txt | tail -n +2 > /tmp/scan_results.json
+
+# Send to Splunk via HTTP Event Collector
+curl -k -X POST https://splunk.company.com:8088/services/collector \
+  -H "Authorization: Splunk your-hec-token" \
+  -H "Content-Type: application/json" \
+  -d @/tmp/scan_results.json
+```
+
+### Automated Scanning
+```bash
+#!/bin/bash
+# automated_scan.sh - Daily scanning with alerting
+
+export GITHUB_TOKEN="github_pat_your_token_here"
+export GITHUB_ORG="your-org"
+
+# Run scan
+python3 shai_hulud_github_hunt.py > scan_results.txt 2>&1
+
+# Check for threats and alert
+CRITICAL_COUNT=$(grep -c "🚨 CRITICAL" scan_results.txt || echo "0")
+
+if [ "$CRITICAL_COUNT" -gt 0 ]; then
+    # Send alert notification
+    echo "🚨 $CRITICAL_COUNT critical threats detected in $GITHUB_ORG" | \
+    mail -s "Shai Hulud Critical Alert" security-team@company.com
+fi
+```
+
+### CI/CD Integration
+```yaml
+# GitHub Actions example
+name: Shai Hulud Security Scan
+on:
+  schedule:
+    - cron: '0 6 * * 1'  # Weekly Monday 6 AM
+  workflow_dispatch:
+
+jobs:
+  security-scan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.9'
+      - name: Install dependencies
+        run: pip install requests
+      - name: Run secure scan
+        env:
+          GITHUB_TOKEN: ${{ secrets.SECURITY_SCAN_TOKEN }}
+          GITHUB_ORG: ${{ github.repository_owner }}
+        run: python3 shai_hulud_github_hunt.py > scan_results.json
+      - name: Upload results
+        uses: actions/upload-artifact@v3
+        with:
+          name: security-scan-results
+          path: scan_results.json
+```
+
+---
 
 ## 🤝 Contributing
 
 ### Development Setup
 ```bash
-git clone https://github.com/your-username/shai_hulud_hunt.git
+git clone https://github.com/your-org/shai_hulud_hunt.git
 cd shai_hulud_hunt
 
 # Install development dependencies
 pip install requests
 
-# Run tests
+# Run syntax check
 python3 -m py_compile shai_hulud_github_hunt.py
+
+# Test with small repository
+export GITHUB_TARGET="octocat/Hello-World"
+python3 shai_hulud_github_hunt.py
 ```
 
 ### Adding New Package Ecosystems
@@ -275,6 +489,8 @@ python3 -m py_compile shai_hulud_github_hunt.py
 - Use descriptive variable names
 - Add docstrings for functions
 - Maintain existing error handling patterns
+
+---
 
 ## 📝 License
 
