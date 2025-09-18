@@ -415,6 +415,127 @@ def validate_token_format(token):
   # Fine-grained tokens start with github_pat_, classic tokens with ghp_
   return token.startswith(('github_pat_', 'ghp_')) and len(token) > 20
 
+def sanitize_url_component(component, component_type="general"):
+  """
+  Sanitize URL components to prevent injection attacks.
+  
+  Args:
+    component: The component to sanitize (organization, user, repo name, etc.)
+    component_type: Type of component for specific validation rules
+  
+  Returns:
+    Sanitized component safe for URL construction
+  """
+  if not component:
+    return ""
+  
+  # Apply existing sanitization functions based on component type
+  if component_type == "organization" or component_type == "user":
+    return sanitize_string(component, max_length=39, allow_chars=r'[a-zA-Z0-9\-]')
+  elif component_type == "repository":
+    return sanitize_repository_path(component)
+  elif component_type == "file_path":
+    return sanitize_file_path(component)
+  else:
+    # General sanitization for any URL component
+    return sanitize_string(component, max_length=255, allow_chars=r'[a-zA-Z0-9\-_./]')
+
+def secure_github_url(endpoint_template, **kwargs):
+  """
+  Securely construct GitHub API URLs with sanitized components.
+  
+  Args:
+    endpoint_template: URL template with placeholders (e.g., "https://api.github.com/orgs/{org}/repos")
+    **kwargs: Components to sanitize and substitute
+  
+  Returns:
+    Safely constructed URL
+  """
+  sanitized_components = {}
+  
+  for key, value in kwargs.items():
+    if key in ['org', 'organization', 'user']:
+      sanitized_components[key] = sanitize_url_component(value, "organization")
+    elif key in ['owner', 'repo', 'repository']:
+      # Handle owner/repo which might be combined
+      if '/' in str(value):
+        owner, repo = str(value).split('/', 1)
+        sanitized_components['owner'] = sanitize_url_component(owner, "organization")
+        sanitized_components['repo'] = sanitize_url_component(repo, "organization")
+      else:
+        sanitized_components[key] = sanitize_url_component(value, "organization")
+    elif key == 'path':
+      sanitized_components[key] = sanitize_url_component(value, "file_path")
+    else:
+      sanitized_components[key] = sanitize_url_component(value)
+    
+    # Ensure sanitized component is not empty after sanitization
+    if not sanitized_components[key] and key in ['org', 'organization', 'user', 'owner', 'repo']:
+      raise ValueError(f"Invalid {key}: '{value}' failed sanitization")
+  
+  return endpoint_template.format(**sanitized_components)
+
+def sanitize_error_message(error_message, max_length=200):
+  """
+  Sanitize error messages to prevent information disclosure.
+  
+  Args:
+    error_message: Original error message
+    max_length: Maximum length for sanitized message
+    
+  Returns:
+    Sanitized error message safe for logging/display
+  """
+  if not error_message:
+    return "Unknown error occurred"
+  
+  # Convert to string and truncate
+  sanitized = str(error_message)[:max_length]
+  
+  # Remove potentially sensitive information patterns
+  sensitive_patterns = [
+    (r'ghp_[a-zA-Z0-9]{36}', '[REDACTED_TOKEN]'),  # GitHub personal access tokens
+    (r'github_pat_[a-zA-Z0-9_]{82}', '[REDACTED_TOKEN]'),  # GitHub fine-grained tokens
+    (r'Bearer\s+[a-zA-Z0-9_-]+', 'Bearer [REDACTED]'),  # Bearer tokens
+    (r'Authorization:\s*[^\s]+', 'Authorization: [REDACTED]'),  # Auth headers
+    (r'token[=\s:]+[a-zA-Z0-9_-]+', 'token=[REDACTED]'),  # Token parameters
+    (r'key[=\s:]+[a-zA-Z0-9_-]+', 'key=[REDACTED]'),  # API keys
+    (r'password[=\s:]+[^\s]+', 'password=[REDACTED]'),  # Passwords
+    (r'/[a-f0-9]{40}', '/[REDACTED_HASH]'),  # SHA hashes
+    (r'(\w+)://([^/\s]+)', r'\1://[REDACTED_HOST]'),  # URLs with hostnames
+  ]
+  
+  for pattern, replacement in sensitive_patterns:
+    sanitized = re.sub(pattern, replacement, sanitized, flags=re.IGNORECASE)
+  
+  # Remove file paths that might contain sensitive info
+  sanitized = re.sub(r'/[a-zA-Z0-9_.-]+/[a-zA-Z0-9_.-]+/[a-zA-Z0-9_.-]+', '/[REDACTED_PATH]', sanitized)
+  
+  return sanitized
+
+def safe_error_print(error_message, context="Operation"):
+  """
+  Safely print error messages with sanitization and context.
+  
+  Args:
+    error_message: Original error message
+    context: Context description for the error
+  """
+  sanitized_message = sanitize_error_message(error_message)
+  print(f"⚠️  {context} error: {sanitized_message}")
+
+def safe_network_error_print(error, url_context="API call"):
+  """
+  Safely print network errors with URL sanitization.
+  
+  Args:
+    error: Network error object  
+    url_context: Description of what URL was being accessed
+  """
+  # Sanitize the error message and any embedded URLs
+  error_str = sanitize_error_message(str(error))
+  print(f"⚠️  Network error during {url_context}: {error_str}")
+
 def validate_token_scopes(token, target, target_type):
   """
   Validate GitHub token scopes against required permissions for secure operation.
@@ -472,26 +593,26 @@ def validate_token_scopes(token, target, target_type):
     # 3. Test specific endpoint access based on target type
     if target_type == "organization":
       # Test organization access
-      r = requests.get(f"https://api.github.com/orgs/{target}", headers=test_headers, timeout=10)
+      r = requests.get(secure_github_url("/orgs/{org}", org=target), headers=test_headers, timeout=10)
       validation_results['org_access'] = r.status_code == 200
 
       # Test repository listing
-      r = requests.get(f"https://api.github.com/orgs/{target}/repos?per_page=1", headers=test_headers, timeout=10)
+      r = requests.get(secure_github_url("/orgs/{org}/repos", org=target), headers=test_headers, timeout=10, params={"per_page": 1})
       validation_results['repo_metadata'] = r.status_code == 200
 
     elif target_type == "user":
       # Test user access
-      r = requests.get(f"https://api.github.com/users/{target}", headers=test_headers, timeout=10)
+      r = requests.get(secure_github_url("/users/{user}", user=target), headers=test_headers, timeout=10)
       validation_results['user_access'] = r.status_code == 200
 
       # Test repository listing
-      r = requests.get(f"https://api.github.com/users/{target}/repos?per_page=1", headers=test_headers, timeout=10)
+      r = requests.get(secure_github_url("/users/{user}/repos", user=target), headers=test_headers, timeout=10, params={"per_page": 1})
       validation_results['repo_metadata'] = r.status_code == 200
 
     elif target_type == "repository":
       # Test single repository access
       owner, repo = target.split("/", 1)
-      r = requests.get(f"https://api.github.com/repos/{owner}/{repo}", headers=test_headers, timeout=10)
+      r = requests.get(secure_github_url("/repos/{owner}/{repo}", owner=owner, repo=repo), headers=test_headers, timeout=10)
       validation_results['single_repo'] = r.status_code == 200
 
     # 4. Test repository contents access (required for package scanning)
@@ -501,7 +622,7 @@ def validate_token_scopes(token, target, target_type):
     elif target_type == "repository":
       # Test contents access for single repo
       owner, repo = target.split("/", 1)
-      r = requests.get(f"https://api.github.com/repos/{owner}/{repo}/contents", headers=test_headers, timeout=10)
+      r = requests.get(secure_github_url("/repos/{owner}/{repo}/contents", owner=owner, repo=repo), headers=test_headers, timeout=10)
       validation_results['repo_contents'] = r.status_code in [200, 404]  # 404 is OK if no files at root
 
     # 5. Analyze scope validation results
@@ -536,7 +657,7 @@ def validate_token_scopes(token, target, target_type):
       return True, f"Token validated with required permissions for {target_type}: {target}", security_warnings
 
   except requests.RequestException as e:
-    return False, f"Network error during validation: {str(e)}", []
+    return False, f"Network error during validation: {sanitize_error_message(str(e))}", []
 
 def test_token_access(target, target_type, token):
   """Enhanced token validation with scope checking"""
@@ -565,6 +686,214 @@ def select_scan_target():
     if choice in ['1', '2', '3']:
       return choice
     print("Invalid choice. Please enter 1, 2, or 3.")
+
+def get_secure_token_input():
+  """
+  Secure token input with multiple fallback methods for different environments.
+  
+  Tries getpass first, then falls back to manual masking for environments
+  where getpass doesn't work (IDEs, Jupyter, some terminals).
+  """
+  import sys
+  import os
+  
+  def manual_masked_input(prompt):
+    """Manual character-by-character input masking for environments where getpass fails"""
+    print(prompt, end='', flush=True)
+    password = ""
+    
+    try:
+      if os.name == 'nt':  # Windows
+        import msvcrt
+        while True:
+          char = msvcrt.getch()
+          if char in [b'\r', b'\n']:  # Enter key
+            print()
+            break
+          elif char == b'\x08':  # Backspace
+            if len(password) > 0:
+              password = password[:-1]
+              print('\b \b', end='', flush=True)
+          else:
+            password += char.decode('utf-8')
+            print('*', end='', flush=True)
+      else:  # Unix/Linux/Mac
+        import termios
+        import tty
+        
+        fd = sys.stdin.fileno()
+        old_settings = termios.tcgetattr(fd)
+        try:
+          tty.cbreak(fd)
+          while True:
+            char = sys.stdin.read(1)
+            if char in ['\n', '\r']:  # Enter key
+              print()
+              break
+            elif char == '\x7f':  # Backspace (Unix)
+              if len(password) > 0:
+                password = password[:-1]
+                print('\b \b', end='', flush=True)
+            elif char == '\x03':  # Ctrl+C
+              raise KeyboardInterrupt
+            else:
+              password += char
+              print('*', end='', flush=True)
+        finally:
+          termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)
+    except (ImportError, OSError):
+      # Fallback to basic input if terminal control fails
+      print("\n⚠️  Warning: Secure input not available in this environment")
+      password = input("Token will be visible - Continue? (y/N): ")
+      if password.lower() != 'y':
+        sys.exit("Token input cancelled for security")
+      password = input("Enter GitHub token: ")
+    
+    return password
+  
+  # Try getpass first
+  try:
+    token = getpass.getpass("Enter GitHub personal access token: ").strip()
+    
+    # Check if getpass actually masked the input by testing in a controlled way
+    # If we're in an environment where getpass doesn't mask, it will return immediately
+    # without waiting for user input in some cases
+    return token
+    
+  except (ImportError, OSError, EOFError):
+    # getpass failed, use manual masking
+    print("⚠️  Standard password input unavailable, using secure fallback...")
+    return manual_masked_input("Enter GitHub personal access token: ").strip()
+
+def get_secure_token_input():
+  """
+  Secure token input with environment detection and robust fallback handling.
+  
+  Detects IDE environments where getpass doesn't mask properly and uses 
+  appropriate fallback methods based on platform and environment capabilities.
+  """
+  import sys
+  import os
+  
+  def detect_ide_environment():
+    """Detect if running in an IDE or environment where getpass won't mask properly"""
+    # Check environment variables for common IDEs
+    ide_env_vars = [
+      'PYCHARM_HOSTED',  # PyCharm
+      'VSCODE_PID',      # VS Code  
+      'JUPYTER_*',       # Jupyter
+      'SPYDER_ARGS',     # Spyder
+      'THEIA_*',         # Theia
+    ]
+    
+    for var in ide_env_vars:
+      if var.endswith('*'):
+        # Check for any env var starting with prefix
+        prefix = var[:-1]
+        if any(env_key.startswith(prefix) for env_key in os.environ):
+          return True, f"IDE environment detected ({prefix}*)"
+      elif os.getenv(var):
+        return True, f"IDE environment detected ({var})"
+    
+    # Check if stdin is not a TTY (common in IDEs)
+    if not (hasattr(sys.stdin, 'isatty') and sys.stdin.isatty()):
+      return True, "Not running in proper TTY"
+    
+    return False, "Environment appears to support getpass"
+  
+  def safe_manual_input(prompt):
+    """Safe manual input with graceful fallbacks for different environment constraints"""
+    print(prompt, end='', flush=True)
+    password = ""
+    
+    # Try platform-specific character input with proper error handling
+    try:
+      if os.name == 'nt':  # Windows
+        import msvcrt
+        while True:
+          char = msvcrt.getch()
+          if char in [b'\r', b'\n']:  # Enter key
+            print()
+            break
+          elif char == b'\x08':  # Backspace
+            if len(password) > 0:
+              password = password[:-1]
+              print('\b \b', end='', flush=True)
+          else:
+            password += char.decode('utf-8')
+            print('*', end='', flush=True)
+        return password
+        
+      else:  # Unix/Linux/Mac - try termios with careful error handling
+        try:
+          import termios
+          import tty
+          
+          fd = sys.stdin.fileno()
+          # Test if termios operations are supported before proceeding
+          old_settings = termios.tcgetattr(fd)
+          
+          try:
+            tty.cbreak(fd)
+            while True:
+              char = sys.stdin.read(1)
+              if char in ['\n', '\r']:  # Enter key
+                print()
+                break
+              elif char == '\x7f':  # Backspace (Unix)
+                if len(password) > 0:
+                  password = password[:-1]
+                  print('\b \b', end='', flush=True)
+              elif char == '\x03':  # Ctrl+C
+                raise KeyboardInterrupt
+              else:
+                password += char
+                print('*', end='', flush=True)
+          finally:
+            termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)
+          return password
+          
+        except (ImportError, OSError, termios.error) as e:
+          # Termios not available or "Inappropriate ioctl for device" error
+          # Fall through to the secure confirmation method below
+          pass
+    
+    except (ImportError, OSError) as e:
+      # Platform-specific modules not available, fall through to confirmation method
+      pass
+    
+    # Secure fallback: Confirm with user and use visible input as last resort
+    print(f"\n⚠️  Secure input masking not available in this environment")
+    print("   This commonly happens in IDEs and development environments.")
+    confirmation = input("   Continue with visible token input? (y/N): ").strip().lower()
+    
+    if confirmation != 'y':
+      print("❌ Token input cancelled for security reasons")
+      print("   Consider running from a terminal or setting GITHUB_TOKEN environment variable")
+      sys.exit(1)
+    
+    print("🔓 Token will be visible during input:")
+    password = input("Enter GitHub personal access token: ").strip()
+    return password
+  
+  # Detect environment capabilities first
+  is_ide, reason = detect_ide_environment()
+  
+  if is_ide:
+    # Skip getpass entirely and use safe manual input
+    print(f"🔒 Using secure input method ({reason})")
+    return safe_manual_input("Enter GitHub personal access token: ")
+  else:
+    # Environment should support getpass properly
+    try:
+      print("🔒 Using standard secure input")
+      token = getpass.getpass("Enter GitHub personal access token: ").strip()
+      return token
+      
+    except (ImportError, OSError, EOFError):
+      # getpass still failed, use safe manual input as fallback
+      print("⚠️  Standard password input failed, using secure fallback...")
+      return safe_manual_input("Enter GitHub personal access token: ")
 
 def get_credentials():
   """Get GitHub target and token from environment or user input"""
@@ -616,13 +945,13 @@ def get_credentials():
     target_type = "organization"
     print(f"Using target from environment: {target}")
 
-  # Get token
+  # Get token with improved masking
   if not token:
     print("\nGitHub token not found in environment.")
     print("Required permissions: Contents (Read), Metadata (Read), Audit Log (Read - Enterprise Cloud)")
     print("Create token at: https://github.com/settings/tokens")
     while True:
-      token = getpass.getpass("Enter GitHub personal access token: ").strip()
+      token = get_secure_token_input()
       if validate_token_format(token):
         break
       print("Invalid token format. Token should start with 'github_pat_' or 'ghp_'")
@@ -631,7 +960,7 @@ def get_credentials():
   print(f"\nValidating token access to {target_type}: {target}...")
   is_valid, message = test_token_access(target, target_type, token)
   if not is_valid:
-    sys.exit(f"Error: {message}")
+    sys.exit(f"Error: {sanitize_error_message(message)}")
 
   print(f"✅ {message}")
   return target, target_type, token
@@ -663,7 +992,7 @@ def load_compromised_packages():
     print("⚠️  compromised_packages.txt not found - package scanning will be limited")
     return set()
   except Exception as e:
-    print(f"⚠️  Error loading compromised packages: {e}")
+    safe_error_print(e, "Loading compromised packages")
     return set()
 
 def parse_package_file_content(content, file_type):
@@ -756,7 +1085,7 @@ def parse_package_file_content(content, file_type):
             dependencies.append((name, version, 'gradle'))
 
   except Exception as e:
-    print(f"⚠️  Error parsing {file_type}: {e}")
+    safe_error_print(e, f"Parsing {file_type}")
 
   return dependencies
 
@@ -793,7 +1122,7 @@ def gh_paged(url, params=None):
         # Single object response, wrap in list
         out.append(response_data)
       else:
-        print(f"⚠️  Unexpected response format: {type(response_data)}")
+        safe_error_print(f"Unexpected response format: {type(response_data)}", "API response processing")
 
       # follow Link header if present
       url = None
@@ -803,16 +1132,16 @@ def gh_paged(url, params=None):
       time.sleep(0.5)
     except requests.exceptions.HTTPError as e:
       if hasattr(e, 'response') and e.response.status_code == 422:
-        print(f"⚠️  Search query error: {params.get('q', 'unknown')} - {e}")
-        print(f"   Response: {e.response.text}")
+        safe_error_print(f"Search query: {sanitize_error_message(params.get('q', 'unknown'))} - {sanitize_error_message(str(e))}", "GitHub search")
+        print(f"   Response: {sanitize_error_message(e.response.text)}")
         break
       elif hasattr(e, 'response') and e.response.status_code == 403:
-        print(f"⚠️  API rate limit or permissions error: {e}")
+        safe_error_print(e, "API rate limit or permissions")
         break
       else:
         raise
     except requests.exceptions.RequestException as e:
-      print(f"⚠️  Network error: {e}")
+      safe_network_error_print(e, "API request")
       break
   return out
 
@@ -859,7 +1188,7 @@ def scan_repository_packages(repo_name, compromised_packages):
           continue
 
         # Use Repository Contents API instead of Search API
-        url = f"https://api.github.com/repos/{safe_repo_name}/contents/{file_path}"
+        url = secure_github_url("/repos/{owner}/{repo}/contents/{path}", owner=safe_repo_name.split('/')[0], repo=safe_repo_name.split('/')[1], path=file_path)
         headers = SECURE_TOKEN_MANAGER.get_headers()
         response = requests.get(url, headers=headers, timeout=10)
 
@@ -902,10 +1231,10 @@ def scan_repository_packages(repo_name, compromised_packages):
           continue
         else:
           # Other error, log and continue
-          print(f"⚠️  Error accessing {file_path} in {repo_name}: {response.status_code}")
+          safe_error_print(f"HTTP {response.status_code}", f"Accessing {sanitize_file_path(file_path)} in {sanitize_repository_path(repo_name)}")
 
       except Exception as e:
-        print(f"⚠️  Error processing {file_path} in {repo_name}: {e}")
+        safe_error_print(e, f"Processing {sanitize_file_path(file_path)} in {sanitize_repository_path(repo_name)}")
 
     time.sleep(0.05)  # Rate limiting - reduced since we're not using search API
 
@@ -1140,15 +1469,15 @@ def get_repositories():
   """Get repositories based on target type with resource limits"""
   if TARGET_TYPE == "organization":
     print(f"🔍 Fetching repositories for organization: {TARGET}")
-    repos = gh_paged(f"https://api.github.com/orgs/{TARGET}/repos", params={"per_page": 100})
+    repos = gh_paged(secure_github_url("/orgs/{org}/repos", org=TARGET), params={"per_page": 100})
   elif TARGET_TYPE == "user":
     print(f"🔍 Fetching repositories for user: {TARGET}")
-    repos = gh_paged(f"https://api.github.com/users/{TARGET}/repos", params={"per_page": 100})
+    repos = gh_paged(secure_github_url("/users/{user}/repos", user=TARGET), params={"per_page": 100})
   elif TARGET_TYPE == "repository":
     print(f"🔍 Fetching single repository: {TARGET}")
     if TARGET and "/" in TARGET:
       owner, repo = TARGET.split("/", 1)
-      repo_data = gh_paged(f"https://api.github.com/repos/{owner}/{repo}")
+      repo_data = gh_paged(secure_github_url("/repos/{owner}/{repo}", owner=owner, repo=repo))
       return repo_data if repo_data else []
     else:
       print(f"⚠️  Invalid repository format: {TARGET}")
@@ -1162,7 +1491,7 @@ def get_repositories():
     try:
       RESOURCE_LIMITS.check_repository_limit(len(repos))
     except RuntimeError as e:
-      print(f"⚠️  {e}")
+      safe_error_print(e, "Repository limit check")
       print(f"   Limiting scan to first {RESOURCE_LIMITS.MAX_REPOSITORIES} repositories")
       repos = repos[:RESOURCE_LIMITS.MAX_REPOSITORIES]
 
@@ -1395,7 +1724,7 @@ def hunt():
             findings["branches"].append({"repo": repo_name, "branch": branch_name})
       time.sleep(0.2)
     except Exception as e:
-      print(f"⚠️  Error scanning branches for {r['full_name']}: {e}")
+      safe_error_print(e, f"Scanning branches for {sanitize_repository_path(r.get('full_name', ''))}")
 
   # 5 audit log window - Enterprise Cloud only (organizations only)
   if TARGET_TYPE == "organization":
@@ -1404,7 +1733,7 @@ def hunt():
 
     for phrase in audit_phrases:
       print(f"   Searching audit logs for: {phrase}")
-      url = f"https://api.github.com/orgs/{TARGET}/audit-log"
+      url = secure_github_url("/orgs/{org}/audit-log", org=TARGET)
       params = {"per_page": 100, "phrase": f"{phrase}+created:2025-09-13..2025-09-17"}
       if phrase == "action:git.push":
         params["include"] = "git"
