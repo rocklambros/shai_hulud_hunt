@@ -53,7 +53,7 @@ Scans for compromised packages across multiple ecosystems:
 ### Installation
 ```bash
 # 1. Download and setup
-git clone https://github.com/your-org/shai_hulud_hunt.git
+git clone https://github.com/rocklambros/shai_hulud_hunt.git
 cd shai_hulud_hunt
 pip install requests
 
@@ -76,7 +76,7 @@ source shai_hulud_env/bin/activate  # Linux/macOS
 shai_hulud_env\Scripts\activate.bat  # Windows
 
 # Install and run
-git clone https://github.com/your-org/shai_hulud_hunt.git
+git clone https://github.com/rocklambros/shai_hulud_hunt.git
 cd shai_hulud_hunt
 pip install requests
 python3 shai_hulud_github_hunt.py
@@ -464,7 +464,7 @@ jobs:
 
 ### Development Setup
 ```bash
-git clone https://github.com/your-org/shai_hulud_hunt.git
+git clone https://github.com/rocklambros/shai_hulud_hunt.git
 cd shai_hulud_hunt
 
 # Install development dependencies
