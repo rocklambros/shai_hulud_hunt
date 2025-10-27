@@ -443,16 +443,20 @@ def sanitize_url_component(component, component_type="general"):
 def secure_github_url(endpoint_template, **kwargs):
   """
   Securely construct GitHub API URLs with sanitized components.
-  
+
   Args:
-    endpoint_template: URL template with placeholders (e.g., "https://api.github.com/orgs/{org}/repos")
+    endpoint_template: URL template with placeholders (e.g., "/orgs/{org}/repos" or "https://api.github.com/orgs/{org}/repos")
     **kwargs: Components to sanitize and substitute
-  
+
   Returns:
     Safely constructed URL
   """
+  # Add base URL if endpoint_template is a relative path
+  if not endpoint_template.startswith('http'):
+    endpoint_template = f"https://api.github.com{endpoint_template}"
+
   sanitized_components = {}
-  
+
   for key, value in kwargs.items():
     if key in ['org', 'organization', 'user']:
       sanitized_components[key] = sanitize_url_component(value, "organization")
@@ -468,11 +472,11 @@ def secure_github_url(endpoint_template, **kwargs):
       sanitized_components[key] = sanitize_url_component(value, "file_path")
     else:
       sanitized_components[key] = sanitize_url_component(value)
-    
+
     # Ensure sanitized component is not empty after sanitization
     if not sanitized_components[key] and key in ['org', 'organization', 'user', 'owner', 'repo']:
       raise ValueError(f"Invalid {key}: '{value}' failed sanitization")
-  
+
   return endpoint_template.format(**sanitized_components)
 
 def sanitize_error_message(error_message, max_length=200):
