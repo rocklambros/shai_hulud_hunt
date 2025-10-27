@@ -452,7 +452,7 @@ jobs:
           GITHUB_ORG: ${{ github.repository_owner }}
         run: python3 shai_hulud_github_hunt.py > scan_results.json
       - name: Upload results
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: security-scan-results
           path: scan_results.json

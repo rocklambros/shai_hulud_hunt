@@ -395,7 +395,7 @@ jobs:
           sed -i 's/github_pat_[a-zA-Z0-9]*/[REDACTED]/g' scan_results.txt
 
       - name: Upload results securely
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: security-scan-results
           path: scan_results.txt
