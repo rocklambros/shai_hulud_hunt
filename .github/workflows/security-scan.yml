@@ -74,7 +74,7 @@ jobs:
           sed -i 's/ghp_[a-zA-Z0-9]*/[REDACTED]/g' scan_results.txt
 
       - name: Upload scan results
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: shai-hulud-scan-results-${{ github.run_number }}
           path: scan_results.txt
