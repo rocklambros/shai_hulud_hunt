@@ -22,7 +22,6 @@ on:
 jobs:
   security-scan:
     runs-on: ubuntu-latest
-    environment: security-scanning
 
     steps:
       - name: Checkout repository
