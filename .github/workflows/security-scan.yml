@@ -8,11 +8,11 @@ on:
       target_type:
         description: 'Scan target type'
         required: true
-        default: 'organization'
+        default: 'user'
         type: choice
         options:
-        - organization
         - user
+        - organization
         - repository
       target_name:
         description: 'Target name (org/user/repo)'
