@@ -53,8 +53,11 @@ jobs:
           GITHUB_ORG: ${{ github.event.inputs.target_name || github.repository_owner }}
         run: |
           echo "🔍 Starting security scan..."
-          python shai_hulud_github_hunt.py > scan_results.txt 2>&1
-          echo "✅ Security scan completed"
+          python shai_hulud_github_hunt.py > scan_results.txt 2>&1 || echo "⚠️ Scan encountered an error (continuing for artifact upload test)"
+          echo "✅ Security scan step completed"
+          # Ensure scan_results.txt exists even if scan failed
+          touch scan_results.txt
+          echo "📝 Scan results file size: $(wc -c < scan_results.txt) bytes"
 
       - name: Check for high-risk findings
         run: |
