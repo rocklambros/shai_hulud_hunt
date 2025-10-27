@@ -964,9 +964,15 @@ def get_credentials():
   print(f"\nValidating token access to {target_type}: {target}...")
   is_valid, message = test_token_access(target, target_type, token)
   if not is_valid:
-    sys.exit(f"Error: {sanitize_error_message(message)}")
+    print(f"⚠️  Warning: {sanitize_error_message(message)}")
+    print("⚠️  Token validation failed but continuing scan (some features may not work)")
+    print("⚠️  For full functionality, ensure token has required permissions:")
+    print("   - Contents: Read")
+    print("   - Metadata: Read")
+    print("   - Audit Log: Read (for Enterprise Cloud)")
+  else:
+    print(f"✅ {message}")
 
-  print(f"✅ {message}")
   return target, target_type, token
 
 # Initialize global variables with secure token management and resource limits
