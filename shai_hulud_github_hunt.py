@@ -945,8 +945,9 @@ def get_credentials():
             break
         print("Invalid format. Use 'owner/repository-name' format.")
   else:
-    # Environment variable provided - assume organization for backwards compatibility
-    target_type = "organization"
+    # Environment variable provided - use target_type from environment or assume organization for backwards compatibility
+    if not target_type:
+      target_type = "organization"
     print(f"Using target from environment: {target}")
 
   # Get token with improved masking
