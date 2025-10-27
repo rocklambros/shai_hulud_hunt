@@ -902,9 +902,9 @@ def get_secure_token_input():
 def get_credentials():
   """Get GitHub target and token from environment or user input"""
   # Check environment variables first
-  target = os.getenv("GITHUB_ORG") or os.getenv("GITHUB_USER") or os.getenv("GITHUB_TARGET")
+  target = os.getenv("GITHUB_TARGET") or os.getenv("GITHUB_ORG") or os.getenv("GITHUB_USER")
   token = os.getenv("GITHUB_TOKEN")
-  target_type = None
+  target_type = os.getenv("GITHUB_TARGET_TYPE")
 
   # If no environment variables, get target selection
   if not target:
