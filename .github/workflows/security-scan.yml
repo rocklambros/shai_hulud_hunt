@@ -50,7 +50,8 @@ jobs:
       - name: Run Shai Hulud security scan
         env:
           GITHUB_TOKEN: ${{ secrets.SECURITY_SCAN_TOKEN }}
-          GITHUB_ORG: ${{ github.event.inputs.target_name || github.repository_owner }}
+          GITHUB_TARGET: ${{ github.event.inputs.target_name || github.repository_owner }}
+          GITHUB_TARGET_TYPE: ${{ github.event.inputs.target_type || 'user' }}
         run: |
           echo "🔍 Starting security scan..."
           python shai_hulud_github_hunt.py > scan_results.txt 2>&1 || echo "⚠️ Scan encountered an error (continuing for artifact upload test)"
